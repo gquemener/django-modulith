@@ -1,6 +1,6 @@
 """Read side: view models built for screens.
 
-Lists read the persistence records directly (no need to load aggregates to
+Lists query the tables directly with SQL (no need to load aggregates to
 display a table). The detail view loads the aggregate so that what a viewer
 is allowed to do is decided by the domain model itself.
 """
@@ -9,14 +9,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from django.db.models import Q
-
 from modules.accounts import api as accounts
 from modules.support_team import api as support_team
 
 from ..domain import AuthorRole, TicketNotFound, TicketStatus
-from .models import TicketRecord
 from .repository import DjangoTicketRepository
+from .sql import fetch_all, from_db_datetime, from_db_uuid, to_db_uuid
+
+_ROW_COLUMNS = "id, title, priority, status, opened_at, escalated_at, awaiting_agent_since, awaiting_customer_since"
 
 
 @dataclass(frozen=True)
@@ -62,40 +62,50 @@ class TicketDetails:
     can_reopen: bool
 
 
-def _rows(queryset) -> list[TicketRow]:
+def _rows(sql: str, params=()) -> list[TicketRow]:
     return [
         TicketRow(
-            id=r.id,
-            title=r.title,
-            priority=r.priority,
-            status=r.status,
-            is_escalated=r.escalated_at is not None and r.status == TicketStatus.OPEN,
+            id=from_db_uuid(r["id"]),
+            title=r["title"],
+            priority=r["priority"],
+            status=r["status"],
+            is_escalated=r["escalated_at"] is not None and r["status"] == TicketStatus.OPEN,
             waiting_for=(
-                None if r.status != TicketStatus.OPEN
-                else "agent" if r.awaiting_agent_since
-                else "customer" if r.awaiting_customer_since
+                None if r["status"] != TicketStatus.OPEN
+                else "agent" if r["awaiting_agent_since"]
+                else "customer" if r["awaiting_customer_since"]
                 else None
             ),
-            opened_at=r.opened_at,
+            opened_at=from_db_datetime(r["opened_at"]),
         )
-        for r in queryset
+        for r in fetch_all(sql, params)
     ]
 
 
 def customer_tickets(customer_id: UUID) -> list[TicketRow]:
-    return _rows(TicketRecord.objects.filter(customer_id=customer_id).order_by("status", "-opened_at"))
+    return _rows(
+        f"SELECT {_ROW_COLUMNS} FROM ticketing_ticket WHERE customer_id = %s ORDER BY status, opened_at DESC",
+        [to_db_uuid(customer_id)],
+    )
 
 
 def staff_inbox(staff_id: UUID) -> dict[str, list[TicketRow]]:
-    open_tickets = TicketRecord.objects.filter(status=TicketStatus.OPEN)
+    staff, open_, closed = to_db_uuid(staff_id), TicketStatus.OPEN.value, TicketStatus.CLOSED.value
     return {
-        "assigned": _rows(open_tickets.filter(agent_id=staff_id).order_by("awaiting_agent_since")),
+        "assigned": _rows(
+            f"SELECT {_ROW_COLUMNS} FROM ticketing_ticket WHERE status = %s AND agent_id = %s"
+            " ORDER BY awaiting_agent_since",
+            [open_, staff],
+        ),
         "escalated_to_me": _rows(
-            open_tickets.filter(manager_id=staff_id, escalated_at__isnull=False).order_by("escalated_at")
+            f"SELECT {_ROW_COLUMNS} FROM ticketing_ticket"
+            " WHERE status = %s AND manager_id = %s AND escalated_at IS NOT NULL ORDER BY escalated_at",
+            [open_, staff],
         ),
         "closed": _rows(
-            TicketRecord.objects.filter(Q(agent_id=staff_id) | Q(manager_id=staff_id), status=TicketStatus.CLOSED)
-            .order_by("-closed_at")[:20]
+            f"SELECT {_ROW_COLUMNS} FROM ticketing_ticket"
+            " WHERE status = %s AND (agent_id = %s OR manager_id = %s) ORDER BY closed_at DESC LIMIT 20",
+            [closed, staff, staff],
         ),
     }
 

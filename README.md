@@ -26,7 +26,7 @@ other's entities by UUID, without cross-module foreign keys. `import-linter` enf
 
 ```
 presentation/    views, forms, templates      → calls application, reads via infrastructure.queries
-infrastructure/  ORM records, repository (Data Mapper), adapters, read-side queries
+infrastructure/  plain SQL access, repository (Data Mapper), adapters, read-side queries
 application/     TicketingService (one use case = one transaction), ports (Clock, AgentDirectory…)
 domain/          Ticket aggregate, SLA rules, events, exceptions, repository interface — pure Python
 bootstrap.py     composition root
@@ -34,8 +34,8 @@ bootstrap.py     composition root
 
 - The `Ticket` aggregate holds **every** business rule. Time is passed in as `now`, so the rules are deterministic and
   tested without a database (`tests/test_domain.py`).
-- `TicketRecord` / `MessageRecord` are persistence records only. `DjangoTicketRepository` maps them to and from the aggregate,
-  uses optimistic locking (`version`), and inserts messages append-only.
+- Ticketing has no Django model: its tables are created by a `RunSQL` migration, and `DjangoTicketRepository` hydrates
+  the aggregate from plain SQL. It uses optimistic locking (`version`) and inserts messages append-only.
 - The aggregate records domain events, which are published after commit. For now they are only logged.
   An outbox or bus can be plugged in behind `EventPublisher`.
 

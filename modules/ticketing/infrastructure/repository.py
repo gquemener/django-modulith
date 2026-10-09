@@ -1,8 +1,6 @@
 import uuid
 from datetime import datetime
 
-from django.db.models import F
-
 from ..domain import (
     AgentId,
     Assignment,
@@ -17,29 +15,68 @@ from ..domain import (
     TicketRepository,
     TicketStatus,
 )
-from .models import MessageRecord, TicketRecord
+from .sql import (
+    execute,
+    execute_many,
+    fetch_all,
+    fetch_one,
+    from_db_datetime,
+    from_db_uuid,
+    to_db_datetime,
+    to_db_uuid,
+)
+
+_TICKET_COLUMNS = (
+    "customer_id",
+    "agent_id",
+    "manager_id",
+    "title",
+    "priority",
+    "status",
+    "opened_at",
+    "assigned_at",
+    "awaiting_agent_since",
+    "awaiting_customer_since",
+    "escalated_at",
+    "opened_by_agent_since_escalation",
+    "closed_at",
+)
 
 
 class DjangoTicketRepository(TicketRepository):
-    """Maps the Ticket aggregate to/from relational records (Data Mapper)."""
+    """Maps the Ticket aggregate to/from relational rows with plain SQL (Data Mapper)."""
 
     def next_identity(self) -> TicketId:
         return TicketId(uuid.uuid4())
 
     def get(self, ticket_id: TicketId) -> Ticket:
-        try:
-            record = TicketRecord.objects.prefetch_related("messages").get(pk=ticket_id)
-        except TicketRecord.DoesNotExist:
-            raise TicketNotFound(f"Ticket {ticket_id} not found.") from None
-        return self._to_domain(record)
+        row = fetch_one(
+            f"SELECT id, version, {', '.join(_TICKET_COLUMNS)} FROM ticketing_ticket WHERE id = %s",
+            [to_db_uuid(ticket_id)],
+        )
+        if row is None:
+            raise TicketNotFound(f"Ticket {ticket_id} not found.")
+        messages = fetch_all(
+            "SELECT id, author_role, author_id, body, sent_at FROM ticketing_message"
+            " WHERE ticket_id = %s ORDER BY position",
+            [to_db_uuid(ticket_id)],
+        )
+        return self._to_domain(row, messages)
 
     def save(self, ticket: Ticket) -> None:
-        fields = self._to_fields(ticket)
+        values = self._to_row(ticket)
         if ticket.version == 0:
-            TicketRecord.objects.create(id=ticket.id, version=1, **fields)
+            execute(
+                f"INSERT INTO ticketing_ticket (id, version, {', '.join(_TICKET_COLUMNS)})"
+                f" VALUES (%s, 1, {', '.join(['%s'] * len(_TICKET_COLUMNS))})",
+                [to_db_uuid(ticket.id), *values],
+            )
         else:
-            updated = TicketRecord.objects.filter(pk=ticket.id, version=ticket.version).update(
-                version=F("version") + 1, **fields
+            updated = execute(
+                f"UPDATE ticketing_ticket SET version = version + 1,"
+                f" {', '.join(f'{column} = %s' for column in _TICKET_COLUMNS)}"
+                " WHERE id = %s AND version = %s",
+                [*values, to_db_uuid(ticket.id), ticket.version],
             )
             if not updated:
                 raise ConcurrencyConflict(f"Ticket {ticket.id} was modified concurrently.")
@@ -47,83 +84,92 @@ class DjangoTicketRepository(TicketRepository):
         ticket.version += 1
 
     def ids_awaiting_customer_since(self, before: datetime) -> list[TicketId]:
-        return list(
-            TicketRecord.objects.filter(
-                status=TicketStatus.OPEN,
-                escalated_at__isnull=True,
-                awaiting_customer_since__lte=before,
-            ).values_list("id", flat=True)
+        rows = fetch_all(
+            "SELECT id FROM ticketing_ticket"
+            " WHERE status = %s AND escalated_at IS NULL AND awaiting_customer_since <= %s",
+            [TicketStatus.OPEN.value, to_db_datetime(before)],
         )
+        return [TicketId(from_db_uuid(row["id"])) for row in rows]
 
     def ids_of_escalated_unopened(self) -> list[TicketId]:
-        return list(
-            TicketRecord.objects.filter(
-                status=TicketStatus.OPEN,
-                escalated_at__isnull=False,
-                opened_by_agent_since_escalation=False,
-            ).values_list("id", flat=True)
+        rows = fetch_all(
+            "SELECT id FROM ticketing_ticket"
+            " WHERE status = %s AND escalated_at IS NOT NULL AND opened_by_agent_since_escalation = %s",
+            [TicketStatus.OPEN.value, False],
         )
+        return [TicketId(from_db_uuid(row["id"])) for row in rows]
 
     # Messages are immutable and append-only: only new ones are inserted.
     def _insert_new_messages(self, ticket: Ticket) -> None:
-        known = set(MessageRecord.objects.filter(ticket_id=ticket.id).values_list("id", flat=True))
-        MessageRecord.objects.bulk_create([
-            MessageRecord(
-                id=message.id,
-                ticket_id=ticket.id,
-                position=position,
-                author_role=message.author_role,
-                author_id=message.author_id,
-                body=message.body,
-                sent_at=message.sent_at,
-            )
-            for position, message in enumerate(ticket.messages)
-            if message.id not in known
-        ])
-
-    @staticmethod
-    def _to_fields(ticket: Ticket) -> dict:
-        return {
-            "customer_id": ticket.customer_id,
-            "agent_id": ticket.agent_id,
-            "manager_id": ticket.manager_id,
-            "title": ticket.title,
-            "priority": ticket.priority.value,
-            "status": ticket.status.value,
-            "opened_at": ticket.opened_at,
-            "assigned_at": ticket.assigned_at,
-            "awaiting_agent_since": ticket.awaiting_agent_since,
-            "awaiting_customer_since": ticket.awaiting_customer_since,
-            "escalated_at": ticket.escalated_at,
-            "opened_by_agent_since_escalation": ticket.opened_by_agent_since_escalation,
-            "closed_at": ticket.closed_at,
+        known = {
+            from_db_uuid(row["id"])
+            for row in fetch_all("SELECT id FROM ticketing_message WHERE ticket_id = %s", [to_db_uuid(ticket.id)])
         }
+        execute_many(
+            "INSERT INTO ticketing_message (id, ticket_id, position, author_role, author_id, body, sent_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            [
+                [
+                    to_db_uuid(message.id),
+                    to_db_uuid(ticket.id),
+                    position,
+                    message.author_role.value,
+                    to_db_uuid(message.author_id),
+                    message.body,
+                    to_db_datetime(message.sent_at),
+                ]
+                for position, message in enumerate(ticket.messages)
+                if message.id not in known
+            ],
+        )
 
     @staticmethod
-    def _to_domain(record: TicketRecord) -> Ticket:
+    def _to_row(ticket: Ticket) -> list:
+        """Values in the order of `_TICKET_COLUMNS`."""
+        return [
+            to_db_uuid(ticket.customer_id),
+            to_db_uuid(ticket.agent_id),
+            to_db_uuid(ticket.manager_id),
+            ticket.title,
+            ticket.priority.value,
+            ticket.status.value,
+            to_db_datetime(ticket.opened_at),
+            to_db_datetime(ticket.assigned_at),
+            to_db_datetime(ticket.awaiting_agent_since),
+            to_db_datetime(ticket.awaiting_customer_since),
+            to_db_datetime(ticket.escalated_at),
+            ticket.opened_by_agent_since_escalation,
+            to_db_datetime(ticket.closed_at),
+        ]
+
+    @staticmethod
+    def _to_domain(row: dict, messages: list[dict]) -> Ticket:
         return Ticket(
-            id=TicketId(record.id),
-            customer_id=CustomerId(record.customer_id),
-            title=record.title,
-            priority=Priority(record.priority),
-            assignment=Assignment(agent_id=AgentId(record.agent_id), manager_id=record.manager_id),
-            assigned_at=record.assigned_at,
-            opened_at=record.opened_at,
-            status=TicketStatus(record.status),
+            id=TicketId(from_db_uuid(row["id"])),
+            customer_id=CustomerId(from_db_uuid(row["customer_id"])),
+            title=row["title"],
+            priority=Priority(row["priority"]),
+            assignment=Assignment(
+                agent_id=AgentId(from_db_uuid(row["agent_id"])),
+                manager_id=from_db_uuid(row["manager_id"]),
+            ),
+            assigned_at=from_db_datetime(row["assigned_at"]),
+            opened_at=from_db_datetime(row["opened_at"]),
+            status=TicketStatus(row["status"]),
             messages=[
                 Message(
-                    id=m.id,
-                    author_role=AuthorRole(m.author_role),
-                    author_id=m.author_id,
-                    body=m.body,
-                    sent_at=m.sent_at,
+                    id=from_db_uuid(m["id"]),
+                    author_role=AuthorRole(m["author_role"]),
+                    author_id=from_db_uuid(m["author_id"]),
+                    body=m["body"],
+                    sent_at=from_db_datetime(m["sent_at"]),
                 )
-                for m in record.messages.all()
+                for m in messages
             ],
-            awaiting_agent_since=record.awaiting_agent_since,
-            awaiting_customer_since=record.awaiting_customer_since,
-            escalated_at=record.escalated_at,
-            opened_by_agent_since_escalation=record.opened_by_agent_since_escalation,
-            closed_at=record.closed_at,
-            version=record.version,
+            awaiting_agent_since=from_db_datetime(row["awaiting_agent_since"]),
+            awaiting_customer_since=from_db_datetime(row["awaiting_customer_since"]),
+            escalated_at=from_db_datetime(row["escalated_at"]),
+            opened_by_agent_since_escalation=bool(row["opened_by_agent_since_escalation"]),
+            closed_at=from_db_datetime(row["closed_at"]),
+            version=row["version"],
         )
