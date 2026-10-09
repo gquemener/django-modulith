@@ -17,11 +17,6 @@ def fetch_all(sql: str, params=()) -> list[dict]:
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def fetch_one(sql: str, params=()) -> dict | None:
-    rows = fetch_all(sql, params)
-    return rows[0] if rows else None
-
-
 def execute(sql: str, params=()) -> int:
     """Run a write statement and return the number of affected rows."""
     with connection.cursor() as cursor:

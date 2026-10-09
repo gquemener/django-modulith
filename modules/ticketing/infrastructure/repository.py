@@ -19,7 +19,6 @@ from .sql import (
     execute,
     execute_many,
     fetch_all,
-    fetch_one,
     from_db_datetime,
     from_db_uuid,
     to_db_datetime,
@@ -50,18 +49,19 @@ class DjangoTicketRepository(TicketRepository):
         return TicketId(uuid.uuid4())
 
     def get(self, ticket_id: TicketId) -> Ticket:
-        row = fetch_one(
-            f"SELECT id, version, {', '.join(_TICKET_COLUMNS)} FROM ticketing_ticket WHERE id = %s",
+        # One row per message (or a single row with NULL message columns when there is none).
+        rows = fetch_all(
+            f"SELECT t.id, t.version, {', '.join(f't.{column}' for column in _TICKET_COLUMNS)},"
+            " m.id AS message_id, m.author_role AS message_author_role, m.author_id AS message_author_id,"
+            " m.body AS message_body, m.sent_at AS message_sent_at"
+            " FROM ticketing_ticket t"
+            " LEFT JOIN ticketing_message m ON m.ticket_id = t.id"
+            " WHERE t.id = %s ORDER BY m.position",
             [to_db_uuid(ticket_id)],
         )
-        if row is None:
+        if not rows:
             raise TicketNotFound(f"Ticket {ticket_id} not found.")
-        messages = fetch_all(
-            "SELECT id, author_role, author_id, body, sent_at FROM ticketing_message"
-            " WHERE ticket_id = %s ORDER BY position",
-            [to_db_uuid(ticket_id)],
-        )
-        return self._to_domain(row, messages)
+        return self._to_domain(rows)
 
     def save(self, ticket: Ticket) -> None:
         values = self._to_row(ticket)
@@ -143,7 +143,8 @@ class DjangoTicketRepository(TicketRepository):
         ]
 
     @staticmethod
-    def _to_domain(row: dict, messages: list[dict]) -> Ticket:
+    def _to_domain(rows: list[dict]) -> Ticket:
+        row = rows[0]
         return Ticket(
             id=TicketId(from_db_uuid(row["id"])),
             customer_id=CustomerId(from_db_uuid(row["customer_id"])),
@@ -158,13 +159,14 @@ class DjangoTicketRepository(TicketRepository):
             status=TicketStatus(row["status"]),
             messages=[
                 Message(
-                    id=from_db_uuid(m["id"]),
-                    author_role=AuthorRole(m["author_role"]),
-                    author_id=from_db_uuid(m["author_id"]),
-                    body=m["body"],
-                    sent_at=from_db_datetime(m["sent_at"]),
+                    id=from_db_uuid(m["message_id"]),
+                    author_role=AuthorRole(m["message_author_role"]),
+                    author_id=from_db_uuid(m["message_author_id"]),
+                    body=m["message_body"],
+                    sent_at=from_db_datetime(m["message_sent_at"]),
                 )
-                for m in messages
+                for m in rows
+                if m["message_id"] is not None
             ],
             awaiting_agent_since=from_db_datetime(row["awaiting_agent_since"]),
             awaiting_customer_since=from_db_datetime(row["awaiting_customer_since"]),
