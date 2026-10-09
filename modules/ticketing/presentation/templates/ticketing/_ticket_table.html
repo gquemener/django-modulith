@@ -1,0 +1,23 @@
+{% if tickets %}
+<div class="table-scroll">
+<table>
+  <thead><tr><th>Title</th><th>Priority</th><th>Status</th><th>Waiting for</th><th>Opened</th></tr></thead>
+  <tbody>
+  {% for t in tickets %}
+    <tr>
+      <td><a href="{% url 'ticketing:detail' t.id %}">{{ t.title }}</a></td>
+      <td><span class="badge {{ t.priority }}">{{ t.priority }}</span></td>
+      <td>
+        <span class="badge {{ t.status }}">{{ t.status }}</span>
+        {% if t.is_escalated %}<span class="badge escalated">escalated</span>{% endif %}
+      </td>
+      <td>{{ t.waiting_for|default:"—" }}</td>
+      <td class="muted">{{ t.opened_at|date:"Y-m-d H:i" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">{{ empty|default:"No tickets." }}</p>
+{% endif %}

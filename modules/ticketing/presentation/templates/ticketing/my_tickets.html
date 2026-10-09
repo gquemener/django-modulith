@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}My tickets{% endblock %}
+{% block content %}
+<div class="actions" style="justify-content:space-between;align-items:center">
+  <h1>My support tickets</h1>
+  <a class="button" href="{% url 'ticketing:open' %}">Open a ticket</a>
+</div>
+<div class="card">{% include "ticketing/_ticket_table.html" with empty="You have no tickets yet." %}</div>
+{% endblock %}

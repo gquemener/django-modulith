@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Open a ticket{% endblock %}
+{% block content %}
+<h1>Open a support ticket</h1>
+<div class="card">
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Open ticket</button>
+  </form>
+</div>
+{% endblock %}

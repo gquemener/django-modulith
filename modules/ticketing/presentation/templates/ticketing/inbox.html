@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Inbox{% endblock %}
+{% block content %}
+<h1>Inbox</h1>
+{% if escalated_to_me %}
+<section class="card">
+  <h2>Escalated to me</h2>
+  {% include "ticketing/_ticket_table.html" with tickets=escalated_to_me %}
+</section>
+{% endif %}
+<section class="card">
+  <h2>Assigned to me</h2>
+  {% include "ticketing/_ticket_table.html" with tickets=assigned empty="Nothing assigned to you." %}
+</section>
+<section class="card">
+  <h2>Recently closed</h2>
+  {% include "ticketing/_ticket_table.html" with tickets=closed %}
+</section>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ ticket.title }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'home' %}">← Back</a></p>
+<h1>{{ ticket.title }}</h1>
+
+<div class="card">
+  <dl class="facts">
+    <dt>Status</dt>
+    <dd>
+      <span class="badge {{ ticket.status }}">{{ ticket.status }}</span>
+      {% if ticket.escalated_at and ticket.status == "open" %}<span class="badge escalated">escalated {{ ticket.escalated_at|timesince }} ago</span>{% endif %}
+    </dd>
+    <dt>Priority</dt><dd><span class="badge {{ ticket.priority }}">{{ ticket.priority }}</span></dd>
+    <dt>Customer</dt><dd>{{ ticket.customer_name }}</dd>
+    <dt>Agent</dt><dd>{{ ticket.agent_name }}</dd>
+    {% if ticket.manager_name %}<dt>Manager</dt><dd>{{ ticket.manager_name }}</dd>{% endif %}
+    {% if ticket.response_deadline %}<dt>Agent must reply by</dt><dd>{{ ticket.response_deadline|date:"Y-m-d H:i" }} UTC</dd>{% endif %}
+    {% if ticket.reassignment_deadline and ticket.viewer_role != "customer" %}<dt>Reassigned unless opened by</dt><dd>{{ ticket.reassignment_deadline|date:"Y-m-d H:i" }} UTC</dd>{% endif %}
+    {% if ticket.auto_close_at %}<dt>Closes automatically on</dt><dd>{{ ticket.auto_close_at|date:"Y-m-d H:i" }} UTC (unless the customer replies)</dd>{% endif %}
+    {% if ticket.closed_at %}<dt>Closed</dt><dd>{{ ticket.closed_at|date:"Y-m-d H:i" }} UTC</dd>{% endif %}
+    {% if ticket.reopen_deadline and ticket.viewer_role == "customer" %}<dt>Can be reopened until</dt><dd>{{ ticket.reopen_deadline|date:"Y-m-d H:i" }} UTC</dd>{% endif %}
+  </dl>
+</div>
+
+{% if ticket.can_escalate or ticket.can_close or ticket.can_reopen %}
+<div class="actions" style="margin-bottom:1rem">
+  {% if ticket.can_escalate %}
+    <form method="post" action="{% url 'ticketing:escalate' ticket.id %}">{% csrf_token %}
+      <button class="danger">Escalate to manager</button></form>
+  {% endif %}
+  {% if ticket.can_close %}
+    <form method="post" action="{% url 'ticketing:close' ticket.id %}">{% csrf_token %}
+      <button class="secondary">Close ticket</button></form>
+  {% endif %}
+  {% if ticket.can_reopen %}
+    <form method="post" action="{% url 'ticketing:reopen' ticket.id %}">{% csrf_token %}
+      <button>Reopen ticket</button></form>
+  {% endif %}
+</div>
+{% endif %}
+
+<section class="card">
+  <h2>Conversation</h2>
+  {% for m in ticket.messages %}
+    <article class="message {{ m.author_role }}">
+      <div class="muted"><strong>{{ m.author_name }}</strong> ({{ m.author_role }}) · {{ m.sent_at|date:"Y-m-d H:i" }}</div>
+      <div class="body">{{ m.body }}</div>
+    </article>
+  {% endfor %}
+
+  {% if ticket.can_post %}
+    <form method="post" action="{% url 'ticketing:post_message' ticket.id %}">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit">Send</button>
+    </form>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Helpdesk{% endblock %} · Helpdesk</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --surface: #fff; --text: #1d2330; --muted: #5d6676; --border: #dde1e7;
+      --accent: #2f5fd0; --danger: #c0392b; --ok: #1e8449; --warn: #b9770e;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #14171c; --surface: #1d2128; --text: #e6e9ee; --muted: #9aa3b2; --border: #323844; --accent: #7aa2ff; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); }
+    header .wrap { display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    header nav { display: flex; gap: 1rem; align-items: center; }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 1rem; }
+    a { color: var(--accent); }
+    h1 { font-size: 1.5rem; margin: .5rem 0 1rem; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .5rem; border-bottom: 1px solid var(--border); }
+    .table-scroll { overflow-x: auto; }
+    .badge { display: inline-block; padding: 0 .5rem; border-radius: 999px; font-size: .8rem; border: 1px solid var(--border); }
+    .badge.urgent, .badge.escalated { color: var(--danger); border-color: var(--danger); }
+    .badge.high { color: var(--warn); border-color: var(--warn); }
+    .badge.closed { color: var(--muted); }
+    .muted { color: var(--muted); font-size: .9rem; }
+    button, .button { font: inherit; padding: .45rem .9rem; border-radius: 6px; border: 1px solid var(--accent);
+      background: var(--accent); color: #fff; cursor: pointer; text-decoration: none; display: inline-block; }
+    button.secondary { background: transparent; color: var(--accent); }
+    button.danger { background: var(--danger); border-color: var(--danger); }
+    .linklike { background: none; border: 0; color: var(--accent); padding: 0; text-decoration: underline; }
+    input, select, textarea { font: inherit; width: 100%; padding: .5rem; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+    form p { margin: 0 0 .75rem; }
+    label { display: block; font-weight: 600; margin-bottom: .25rem; }
+    .messages { list-style: none; padding: 0; }
+    .messages li { padding: .5rem 1rem; border-radius: 6px; margin-bottom: .5rem; background: var(--surface); border-left: 4px solid var(--accent); }
+    .messages .error { border-color: var(--danger); }
+    .messages .success { border-color: var(--ok); }
+    .errorlist { color: var(--danger); padding-left: 1rem; }
+    .message { border-left: 4px solid var(--border); padding: .25rem 0 .25rem 1rem; margin-bottom: 1rem; }
+    .message.agent { border-color: var(--accent); }
+    .message .body { white-space: pre-wrap; }
+    .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0; }
+    dl.facts dt { color: var(--muted); }
+    dl.facts dd { margin: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <strong><a href="{% url 'home' %}">Helpdesk</a></strong>
+      {% if user.is_authenticated %}
+        <nav>
+          <span class="muted">{{ user.get_full_name|default:user.username }}</span>
+          <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="linklike">Log out</button></form>
+        </nav>
+      {% endif %}
+    </div>
+  </header>
+  <main class="wrap">
+    {% if messages %}
+      <ul class="messages">{% for message in messages %}<li class="{{ message.tags }}">{{ message }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

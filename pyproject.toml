@@ -1,0 +1,68 @@
+[project]
+name = "helpdesk"
+version = "0.1.0"
+description = "Support desk built as a Django modular monolith"
+requires-python = ">=3.14"
+dependencies = [
+    "django>=6.1.2",
+]
+
+[dependency-groups]
+dev = [
+    "import-linter>=2.15",
+    "pytest>=9.1.1",
+    "pytest-django>=4.14.0",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py"]
+
+# Architecture rules, checked with `uv run lint-imports`.
+[tool.importlinter]
+root_packages = ["modules", "config"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Ticketing domain is pure Python (no Django, no outer layers)"
+type = "forbidden"
+source_modules = ["modules.ticketing.domain"]
+forbidden_modules = [
+    "django",
+    "modules.ticketing.application",
+    "modules.ticketing.infrastructure",
+    "modules.ticketing.presentation",
+]
+
+[[tool.importlinter.contracts]]
+name = "Ticketing application layer does not depend on Django or infrastructure"
+type = "forbidden"
+source_modules = ["modules.ticketing.application"]
+forbidden_modules = [
+    "django",
+    "modules.ticketing.infrastructure",
+    "modules.ticketing.presentation",
+]
+
+[[tool.importlinter.contracts]]
+name = "Ticketing layers"
+type = "layers"
+containers = ["modules.ticketing"]
+layers = ["presentation", "infrastructure", "application", "domain"]
+
+[[tool.importlinter.contracts]]
+name = "Modules talk to support_team only through its public API"
+type = "forbidden"
+source_modules = ["modules.ticketing", "modules.accounts"]
+forbidden_modules = [
+    "modules.support_team.models",
+    "modules.support_team.admin",
+    "modules.support_team.management",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Other modules never reach into ticketing internals"
+type = "forbidden"
+source_modules = ["modules.support_team", "modules.accounts"]
+forbidden_modules = ["modules.ticketing"]
