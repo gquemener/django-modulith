@@ -8,6 +8,7 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 INSTALLED_APPS = [
+    "config",  # project-wide commands (runserver default port); must precede staticfiles
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",

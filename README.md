@@ -4,7 +4,7 @@
 uv sync
 uv run python manage.py migrate
 uv run python manage.py seed_demo          # users: maria (manager), alice, bob (agents), carol, dave (customers) — password "demo"
-uv run python manage.py runserver
+uv run python manage.py runserver           # http://127.0.0.1:8888 (override with DJANGO_PORT=xxxx)
 uv run python manage.py run_ticket_policies  # schedule every minute (cron/systemd timer): auto-close & auto-reassign
 
 uv run pytest          # tests
