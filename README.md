@@ -20,6 +20,34 @@ uv run lint-imports    # architecture rules
 | `support_team` | Agents, managers, availability | Django Active Record |
 | `ticketing` | Support ticket lifecycle | **Domain Model** (layered) |
 
+### Dependencies
+
+These are the imports between modules, taken from the import statements of the source code (tests and migrations
+excluded). Solid arrows are imports. Dotted arrows are dependencies with no import statement.
+
+```mermaid
+flowchart TD
+    config["config<br/><i>project: settings, urls</i>"]
+    ticketing["ticketing"]
+    support_team["support_team"]
+    accounts["accounts"]
+    shared["shared"]
+
+    config -->|"presentation.views<br/>(urls)"| ticketing
+    ticketing -->|"api"| support_team
+    ticketing -->|"api"| accounts
+    ticketing -->|"bus"| shared
+    support_team -->|"bus"| shared
+    support_team -.->|"AUTH_USER_MODEL<br/>(Agent.user)"| accounts
+    shared -.->|"discovers bootstrap.event_handlers()<br/>at startup"| ticketing
+```
+
+- `ticketing` depends on the other modules only through their `api.py`. Only its `infrastructure` layer and
+  `bootstrap.py` import them; its `domain` and `application` layers import no other module.
+- No module imports `ticketing`. Only the project does, to mount its URLs. `support_team` reaches ticketing only
+  through the `AgentSuspended` event.
+- `shared` imports no module. It finds their handlers at runtime, so the dependency points one way in the code only.
+
 Modules only talk to each other through their `api.py` (plain DTOs, never models) and refer to each
 other's entities by UUID, without cross-module foreign keys. `import-linter` enforces these rules (see `pyproject.toml`).
 
