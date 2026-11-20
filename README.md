@@ -22,6 +22,17 @@ uv run lint-imports    # architecture rules
 Modules only talk to each other through their `api.py` (plain DTOs, never models) and refer to each
 other's entities by UUID, without cross-module foreign keys. `import-linter` enforces these rules (see `pyproject.toml`).
 
+A module can also react to what happens in another one through **integration events**, without the publisher
+knowing its subscribers. Example: when a manager suspends an agent (admin action "Suspend selected agents"):
+
+1. `support_team.api.suspend_agent()` publishes `AgentSuspended`, a plain DTO exposed by `support_team.api`.
+2. Once that transaction commits, `support_team` delivers the event in-process to its subscribers (`support_team/events.py`).
+3. `ticketing` subscribed at startup (`TicketingConfig.ready` → `bootstrap.subscribe_to_other_modules`). It hands the
+   agent's open tickets over to other agents, one transaction per ticket (`TicketingService.hand_over_tickets_of`).
+4. Each `TicketReassigned` domain event emails the new agent (`NotifyAgentOfReassignedTicket`).
+
+`support_team` never imports `ticketing`, and import-linter checks that.
+
 ## Ticketing layers
 
 ```

@@ -190,6 +190,44 @@ class TestReassignment:
     def test_non_escalated_tickets_are_never_reassigned(self):
         assert not open_ticket().is_reassignment_due(T0 + timedelta(days=30))
 
+    def test_reassignment_records_why(self):
+        ticket = escalated_ticket()
+        ticket.pull_events()
+        ticket.reassign(Assignment(OTHER_AGENT, MANAGER), T0 + timedelta(hours=7))
+
+        [event] = ticket.pull_events()
+        assert event.reason == events.ReassignmentReason.ESCALATION_NOT_OPENED
+
+
+class TestHandOver:
+    def test_any_open_ticket_can_be_handed_over_at_any_time(self):
+        ticket = open_ticket()
+        ticket.hand_over(Assignment(OTHER_AGENT, MANAGER), T0 + timedelta(minutes=1))
+
+        assert ticket.agent_id == OTHER_AGENT
+        [event] = ticket.pull_events()
+        assert isinstance(event, events.TicketReassigned)
+        assert event.previous_agent_id == AGENT
+        assert event.reason == events.ReassignmentReason.AGENT_SUSPENDED
+
+    def test_an_escalated_ticket_gives_the_new_agent_a_fresh_window(self):
+        ticket = escalated_ticket()
+        now = T0 + timedelta(hours=5, minutes=1)
+        ticket.hand_over(Assignment(OTHER_AGENT, MANAGER), now)
+
+        assert ticket.assigned_at == now
+        assert not ticket.opened_by_agent_since_escalation
+
+    def test_cannot_hand_over_to_the_same_agent(self):
+        with pytest.raises(ReassignmentNotAllowed):
+            open_ticket().hand_over(Assignment(AGENT, MANAGER), T0)
+
+    def test_cannot_hand_over_a_closed_ticket(self):
+        ticket = open_ticket()
+        ticket.close(CUSTOMER, T0)
+        with pytest.raises(InvalidTicketState):
+            ticket.hand_over(Assignment(OTHER_AGENT, MANAGER), T0)
+
 
 class TestAutomaticClosing:
     def test_closed_when_the_customer_does_not_reply_within_seven_days(self):

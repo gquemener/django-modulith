@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from uuid import UUID
 
 from ..domain import (
     AgentId,
@@ -96,6 +97,13 @@ class DjangoTicketRepository(TicketRepository):
             "SELECT id FROM ticketing_ticket"
             " WHERE status = %s AND escalated_at IS NOT NULL AND opened_by_agent_since_escalation = %s",
             [TicketStatus.OPEN.value, False],
+        )
+        return [TicketId(from_db_uuid(row["id"])) for row in rows]
+
+    def ids_of_open_assigned_to(self, agent_id: UUID) -> list[TicketId]:
+        rows = fetch_all(
+            "SELECT id FROM ticketing_ticket WHERE status = %s AND agent_id = %s",
+            [TicketStatus.OPEN.value, to_db_uuid(agent_id)],
         )
         return [TicketId(from_db_uuid(row["id"])) for row in rows]
 

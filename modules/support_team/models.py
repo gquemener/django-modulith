@@ -31,6 +31,8 @@ class Agent(models.Model):
         limit_choices_to={"role": "manager"},
     )
     is_available = models.BooleanField(default=True)
+    # A suspended agent gets no tickets at all, whatever their availability.
+    is_suspended = models.BooleanField(default=False)
 
     def __str__(self):
         return self.user.get_full_name() or self.user.get_username()

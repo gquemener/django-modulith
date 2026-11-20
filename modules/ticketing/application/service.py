@@ -38,6 +38,12 @@ class PolicyRunReport:
     reassigned: list[TicketId]
 
 
+@dataclass(frozen=True)
+class HandOverReport:
+    handed_over: list[TicketId]
+    left_with_agent: list[TicketId]  # no other agent available, or the change failed
+
+
 class TicketingService:
     def __init__(
         self,
@@ -91,6 +97,25 @@ class TicketingService:
     def reopen(self, ticket_id: TicketId, customer_id: UUID) -> None:
         self._change(ticket_id, lambda t, now: t.reopen(customer_id, now))
 
+    def hand_over_tickets_of(self, agent_id: UUID) -> HandOverReport:
+        """Give the open tickets of an agent who can no longer work on them to other agents.
+
+        One transaction per ticket: a failure on one ticket does not prevent the others.
+        """
+        handed_over, left = [], []
+        for ticket_id in self._tickets.ids_of_open_assigned_to(agent_id):
+            (handed_over if self._try(ticket_id, self._hand_over) else left).append(ticket_id)
+        if left:
+            logger.warning("Tickets left with agent %s: %s", agent_id, left)
+        return HandOverReport(handed_over=handed_over, left_with_agent=left)
+
+    def _hand_over(self, ticket: Ticket, now) -> bool:
+        assignment = self._agents.assign_agent(exclude={ticket.agent_id})
+        if assignment is None:
+            return False
+        ticket.hand_over(assignment, now)
+        return True
+
     # ----------------------------------------------------- automatic policies
 
     def run_policies(self) -> PolicyRunReport:
@@ -130,7 +155,7 @@ class TicketingService:
         try:
             return self._change(ticket_id, action)
         except Exception:
-            logger.exception("Policy failed for ticket %s", ticket_id)
+            logger.exception("Action failed for ticket %s", ticket_id)
             return False
 
     def _change(self, ticket_id: TicketId, action: Callable[[Ticket, object], object]):

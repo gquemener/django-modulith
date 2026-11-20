@@ -10,7 +10,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from modules.accounts.models import User
+from modules.support_team import api as support_team
 from modules.support_team.models import Agent
+from modules.ticketing.application.service import NoAgentAvailable
 from modules.ticketing.bootstrap import ticketing_service
 from modules.ticketing.domain import ConcurrencyConflict, Priority, TicketStatus
 from modules.ticketing.domain.events import TicketReopened
@@ -146,3 +148,35 @@ def test_a_failing_handler_does_not_prevent_the_others(django_capture_on_commit_
         publisher.publish([event])
 
     assert handled == [event]
+
+
+def test_suspending_an_agent_hands_their_tickets_over_to_another_agent(team, django_capture_on_commit_callbacks):
+    service = ticketing_service()
+    ticket_id = service.open_ticket(team["customer"].pk, "Printer on fire", "Help", Priority.URGENT)
+    bob = User.objects.create_user("bob", email="bob@example.com", password="pw")
+    Agent.objects.create(user=bob, manager=Agent.objects.get(pk=team["manager"].pk))
+
+    with django_capture_on_commit_callbacks(execute=True):
+        support_team.suspend_agent(team["agent"].pk)
+
+    assert DjangoTicketRepository().get(ticket_id).agent_id == bob.pk
+    [email] = mail.outbox
+    assert email.to == ["bob@example.com"]
+    assert "Printer on fire" in email.subject
+    assert "suspended" in email.body
+
+
+def test_suspended_agents_get_no_new_tickets(team):
+    support_team.suspend_agent(team["agent"].pk)
+
+    with pytest.raises(NoAgentAvailable):
+        ticketing_service().open_ticket(team["customer"].pk, "Bug", "x", Priority.LOW)
+
+
+def test_suspending_an_already_suspended_agent_publishes_nothing(team, django_capture_on_commit_callbacks):
+    support_team.suspend_agent(team["agent"].pk)
+
+    with django_capture_on_commit_callbacks() as callbacks:
+        support_team.suspend_agent(team["agent"].pk)
+
+    assert callbacks == []

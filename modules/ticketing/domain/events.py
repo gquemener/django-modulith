@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from uuid import UUID
 
 
@@ -37,10 +38,17 @@ class EscalatedTicketOpenedByAgent(DomainEvent):
     agent_id: UUID
 
 
+class ReassignmentReason(StrEnum):
+    ESCALATION_NOT_OPENED = "escalation_not_opened"
+    AGENT_SUSPENDED = "agent_suspended"
+
+
 @dataclass(frozen=True, kw_only=True)
 class TicketReassigned(DomainEvent):
     previous_agent_id: UUID
     new_agent_id: UUID
+    title: str
+    reason: ReassignmentReason
 
 
 @dataclass(frozen=True, kw_only=True)
