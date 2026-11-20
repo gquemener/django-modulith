@@ -1,6 +1,5 @@
 """Django integration: persistence mapping, module wiring and HTTP endpoints."""
 
-import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -10,15 +9,17 @@ from django.urls import reverse
 from django.utils import timezone
 
 from modules.accounts.models import User
+from modules.shared.bus import bus
 from modules.support_team import api as support_team
 from modules.support_team.models import Agent
+from modules.ticketing.application.handlers import NotifyAgentOfNewTicket, NotifyAgentOfReassignedTicket
 from modules.ticketing.application.service import NoAgentAvailable
 from modules.ticketing.bootstrap import ticketing_service
 from modules.ticketing.domain import ConcurrencyConflict, Priority, TicketStatus
-from modules.ticketing.domain.events import TicketReopened
-from modules.ticketing.infrastructure.adapters import DispatchingEventPublisher
+from modules.ticketing.domain.events import TicketOpened, TicketReassigned
 from modules.ticketing.infrastructure.repository import DjangoTicketRepository
 from modules.ticketing.infrastructure.sql import execute, fetch_all, from_db_uuid, to_db_datetime, to_db_uuid
+from modules.ticketing.infrastructure.subscribers import HandOverTicketsOfSuspendedAgent
 
 pytestmark = pytest.mark.django_db
 
@@ -135,19 +136,10 @@ def test_no_email_is_sent_before_commit(team, django_capture_on_commit_callbacks
     assert mail.outbox == []
 
 
-def test_a_failing_handler_does_not_prevent_the_others(django_capture_on_commit_callbacks):
-    handled = []
-
-    def failing(event):
-        raise RuntimeError("boom")
-
-    publisher = DispatchingEventPublisher({TicketReopened: [failing, handled.append]})
-    event = TicketReopened(ticket_id=uuid.uuid4(), occurred_at=timezone.now())
-
-    with django_capture_on_commit_callbacks(execute=True):
-        publisher.publish([event])
-
-    assert handled == [event]
+def test_every_module_handler_is_subscribed_to_the_bus():
+    assert any(isinstance(h, NotifyAgentOfNewTicket) for h in bus.handlers_of(TicketOpened))
+    assert any(isinstance(h, NotifyAgentOfReassignedTicket) for h in bus.handlers_of(TicketReassigned))
+    assert any(isinstance(h, HandOverTicketsOfSuspendedAgent) for h in bus.handlers_of(support_team.AgentSuspended))
 
 
 def test_suspending_an_agent_hands_their_tickets_over_to_another_agent(team, django_capture_on_commit_callbacks):

@@ -67,3 +67,9 @@ name = "Other modules never reach into ticketing internals"
 type = "forbidden"
 source_modules = ["modules.support_team", "modules.accounts"]
 forbidden_modules = ["modules.ticketing"]
+
+[[tool.importlinter.contracts]]
+name = "The shared kernel depends on no module"
+type = "forbidden"
+source_modules = ["modules.shared"]
+forbidden_modules = ["modules.accounts", "modules.support_team", "modules.ticketing"]

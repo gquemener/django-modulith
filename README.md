@@ -15,6 +15,7 @@ uv run lint-imports    # architecture rules
 
 | Module | Responsibility | Style |
 |---|---|---|
+| `shared` | Event bus (shared kernel, depends on no module) | Plain Python |
 | `accounts` | Users (UUID identities) | Django Active Record |
 | `support_team` | Agents, managers, availability | Django Active Record |
 | `ticketing` | Support ticket lifecycle | **Domain Model** (layered) |
@@ -22,16 +23,27 @@ uv run lint-imports    # architecture rules
 Modules only talk to each other through their `api.py` (plain DTOs, never models) and refer to each
 other's entities by UUID, without cross-module foreign keys. `import-linter` enforces these rules (see `pyproject.toml`).
 
-A module can also react to what happens in another one through **integration events**, without the publisher
-knowing its subscribers. Example: when a manager suspends an agent (admin action "Suspend selected agents"):
+### Events
 
-1. `support_team.api.suspend_agent()` publishes `AgentSuspended`, a plain DTO exposed by `support_team.api`.
-2. Once that transaction commits, `support_team` delivers the event in-process to its subscribers (`support_team/events.py`).
-3. `ticketing` subscribed at startup (`TicketingConfig.ready` → `bootstrap.subscribe_to_other_modules`). It hands the
-   agent's open tickets over to other agents, one transaction per ticket (`TicketingService.hand_over_tickets_of`).
-4. Each `TicketReassigned` domain event emails the new agent (`NotifyAgentOfReassignedTicket`).
+All events go through one in-process bus (`modules/shared/bus.py`), and are delivered once the transaction commits.
+A failing handler is logged without affecting the others.
 
-`support_team` never imports `ticketing`, and import-linter checks that.
+- **A handler declares the event it handles through its type hint.** There is no mapping to maintain:
+  `def __call__(self, event: TicketOpened)`, or `event: TicketOpened | TicketClosed` for several events.
+- **Handlers are discovered automatically.** At startup, `modules.shared` subscribes the handlers returned by every
+  module's `bootstrap.event_handlers()`. Each module still builds its handlers explicitly there, with their
+  dependencies. To add a handler, write it and append it to that list.
+- A module can subscribe to another module's **integration events**: the events that module exposes in its `api.py`.
+  Its domain events stay private, and import-linter enforces that.
+
+Example: when a manager suspends an agent (admin action "Suspend selected agents"):
+
+1. `support_team.api.suspend_agent()` publishes `AgentSuspended`.
+2. `ticketing.infrastructure.subscribers.HandOverTicketsOfSuspendedAgent` handles it, because its parameter is typed
+   `support_team.AgentSuspended`. It hands the agent's open tickets over to other agents, one transaction per ticket.
+3. Each `TicketReassigned` domain event emails the new agent (`NotifyAgentOfReassignedTicket`).
+
+`support_team` never imports `ticketing`.
 
 ## Ticketing layers
 
@@ -47,10 +59,10 @@ bootstrap.py     composition root
   tested without a database (`tests/test_domain.py`).
 - Ticketing has no Django model: its tables are created by a `RunSQL` migration, and `DjangoTicketRepository` hydrates
   the aggregate from plain SQL. It uses optimistic locking (`version`) and inserts messages append-only.
-- The aggregate records domain events, which are dispatched after commit to the handlers of `application/handlers.py`
-  (wired in `bootstrap.py`). Handlers only use ports: e.g. `NotifyAgentOfNewTicket` emails the assigned agent through
-  the `EmailSender` port (printed to the console in development). Dispatch is in-process and best effort; an outbox or
-  bus can be plugged in behind `EventPublisher`.
+- The aggregate records domain events, which `BusEventPublisher` puts on the bus. Their handlers
+  (`application/handlers.py`) only use ports: e.g. `NotifyAgentOfNewTicket` emails the assigned agent through the
+  `EmailSender` port (printed to the console in development). Delivery is in-process and best effort; an outbox can
+  be plugged in behind the bus later.
 
 ## Interpretation of the requirements
 

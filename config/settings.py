@@ -16,6 +16,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     # Modules of the monolith
+    "modules.shared",  # event bus: subscribes every module's bootstrap.event_handlers()
     "modules.accounts",
     "modules.support_team",
     "modules.ticketing",
