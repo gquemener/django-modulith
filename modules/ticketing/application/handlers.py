@@ -1,20 +1,15 @@
 """Domain event handlers: side effects triggered by what happened to a ticket.
 
-Like use cases, they only talk to the outside world through ports.
+Like use cases, they only talk to the outside world through ports. The event a
+handler reacts to is the type hint of its parameter: the event bus routes on it.
 """
 
 import logging
-from collections.abc import Callable, Mapping, Sequence
-from typing import Any
 
-from ..domain.events import DomainEvent, ReassignmentReason, TicketOpened, TicketReassigned
+from ..domain.events import ReassignmentReason, TicketOpened, TicketReassigned
 from .ports import AgentDirectory, EmailSender
 
 logger = logging.getLogger(__name__)
-
-EventHandler = Callable[[Any], None]
-EventHandlers = Mapping[type[DomainEvent], Sequence[EventHandler]]
-
 
 class NotifyAgentOfNewTicket:
     """Emails the agent a newly opened ticket has been assigned to."""

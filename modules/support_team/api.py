@@ -12,7 +12,9 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
-from .events import AgentSuspended, publish, subscribe
+from modules.shared.bus import bus
+
+from .events import AgentSuspended
 from .models import Agent
 
 __all__ = [
@@ -22,7 +24,6 @@ __all__ = [
     "get_agent",
     "is_support_staff",
     "pick_available_agent",
-    "subscribe",
     "suspend_agent",
 ]
 
@@ -76,4 +77,4 @@ def suspend_agent(agent_id: UUID) -> None:
     with transaction.atomic():
         suspended = Agent.objects.filter(pk=agent_id, is_suspended=False).update(is_suspended=True)
         if suspended:
-            publish(AgentSuspended(agent_id=agent_id, occurred_at=timezone.now()))
+            bus.publish(AgentSuspended(agent_id=agent_id, occurred_at=timezone.now()))

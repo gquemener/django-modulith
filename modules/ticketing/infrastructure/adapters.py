@@ -11,9 +11,9 @@ from django.db import transaction
 from django.utils import timezone
 
 from modules.accounts import api as accounts
+from modules.shared.bus import EventBus
 from modules.support_team import api as support_team
 
-from ..application.handlers import EventHandlers
 from ..domain import AgentId, Assignment
 from ..domain.events import DomainEvent
 
@@ -51,25 +51,12 @@ class DjangoEmailSender:
         send_mail(subject, body, None, [to])  # from DEFAULT_FROM_EMAIL
 
 
-class DispatchingEventPublisher:
-    """Dispatches domain events to their handlers once the transaction commits.
+class BusEventPublisher:
+    """Publishes domain events on the application-wide bus (delivered after commit)."""
 
-    Handlers run in-process, after commit: a rolled-back use case notifies no one,
-    and a failing handler is logged without affecting the others nor the caller.
-    Swap for an outbox / message bus when delivery must be guaranteed.
-    """
-
-    def __init__(self, handlers: EventHandlers) -> None:
-        self._handlers = handlers
+    def __init__(self, bus: EventBus) -> None:
+        self._bus = bus
 
     def publish(self, events: list[DomainEvent]) -> None:
         for event in events:
-            transaction.on_commit(lambda e=event: self._dispatch(e))
-
-    def _dispatch(self, event: DomainEvent) -> None:
-        logger.info("Domain event: %r", event)
-        for handler in self._handlers.get(type(event), ()):
-            try:
-                handler(event)
-            except Exception:
-                logger.exception("Handler %r failed on %r", handler, event)
+            self._bus.publish(event)
