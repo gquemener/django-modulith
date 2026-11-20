@@ -76,6 +76,14 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+
+# Emails are printed to the console in development.
+MAILERS = {
+    "default": {
+        "BACKEND": os.environ.get("DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"),
+    },
+}
+DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "helpdesk@example.com")
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LOGGING = {

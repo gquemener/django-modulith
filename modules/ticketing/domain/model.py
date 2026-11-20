@@ -141,7 +141,7 @@ class Ticket:
         )
         ticket._record(events.TicketOpened(
             ticket_id=ticket_id, occurred_at=now, customer_id=customer_id,
-            agent_id=assignment.agent_id, priority=priority,
+            agent_id=assignment.agent_id, title=title, priority=priority,
         ))
         ticket._append(AuthorRole.CUSTOMER, customer_id, description, now)
         return ticket

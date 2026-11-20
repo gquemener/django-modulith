@@ -15,6 +15,7 @@ class DomainEvent:
 class TicketOpened(DomainEvent):
     customer_id: UUID
     agent_id: UUID
+    title: str
     priority: str
 
 

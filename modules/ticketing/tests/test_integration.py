@@ -1,9 +1,11 @@
 """Django integration: persistence mapping, module wiring and HTTP endpoints."""
 
+import uuid
 from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.core import mail
 from django.urls import reverse
 from django.utils import timezone
 
@@ -11,6 +13,8 @@ from modules.accounts.models import User
 from modules.support_team.models import Agent
 from modules.ticketing.bootstrap import ticketing_service
 from modules.ticketing.domain import ConcurrencyConflict, Priority, TicketStatus
+from modules.ticketing.domain.events import TicketReopened
+from modules.ticketing.infrastructure.adapters import DispatchingEventPublisher
 from modules.ticketing.infrastructure.repository import DjangoTicketRepository
 from modules.ticketing.infrastructure.sql import execute, fetch_all, from_db_uuid, to_db_datetime, to_db_uuid
 
@@ -25,7 +29,9 @@ def ticket_row(ticket_id):
 @pytest.fixture
 def team():
     maria = Agent.objects.create(user=User.objects.create_user("maria", password="pw"), role=Agent.Role.MANAGER)
-    alice = Agent.objects.create(user=User.objects.create_user("alice", password="pw"), manager=maria)
+    alice = Agent.objects.create(
+        user=User.objects.create_user("alice", email="alice@example.com", password="pw"), manager=maria
+    )
     customer = User.objects.create_user("carol", password="pw")
     return {"manager": maria.user, "agent": alice.user, "customer": customer}
 
@@ -109,3 +115,34 @@ def test_tickets_are_private(client, team):
     ticket_id = ticketing_service().open_ticket(team["customer"].pk, "Bug", "x", Priority.LOW)
     client.force_login(User.objects.create_user("eve", password="pw"))
     assert client.get(reverse("ticketing:detail", args=[ticket_id])).status_code == 404
+
+
+def test_agent_is_emailed_after_a_ticket_is_opened(team, django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=True):
+        ticketing_service().open_ticket(team["customer"].pk, "Printer on fire", "Help", Priority.URGENT)
+
+    [email] = mail.outbox
+    assert email.to == ["alice@example.com"]
+    assert "Printer on fire" in email.subject
+
+
+def test_no_email_is_sent_before_commit(team, django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=False):
+        ticketing_service().open_ticket(team["customer"].pk, "Printer on fire", "Help", Priority.URGENT)
+
+    assert mail.outbox == []
+
+
+def test_a_failing_handler_does_not_prevent_the_others(django_capture_on_commit_callbacks):
+    handled = []
+
+    def failing(event):
+        raise RuntimeError("boom")
+
+    publisher = DispatchingEventPublisher({TicketReopened: [failing, handled.append]})
+    event = TicketReopened(ticket_id=uuid.uuid4(), occurred_at=timezone.now())
+
+    with django_capture_on_commit_callbacks(execute=True):
+        publisher.publish([event])
+
+    assert handled == [event]
