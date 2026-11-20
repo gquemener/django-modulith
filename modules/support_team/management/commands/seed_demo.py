@@ -14,7 +14,7 @@ class Command(BaseCommand):
 
         def user(username, first_name, **extra):
             obj, created = User.objects.get_or_create(
-                username=username, defaults={"first_name": first_name, **extra}
+                username=username, defaults={"first_name": first_name, "email": f"{username}@example.com", **extra}
             )
             if created:
                 obj.set_password(PASSWORD)

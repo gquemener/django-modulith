@@ -21,6 +21,14 @@ class AgentDirectory(Protocol):
 
     def is_support_staff(self, user_id: UUID) -> bool: ...
 
+    def email_of(self, agent_id: UUID) -> str | None: ...
+
+
+class EmailSender(Protocol):
+    """Port for sending email, as the repository is the port for persistence."""
+
+    def send(self, to: str, subject: str, body: str) -> None: ...
+
 
 class EventPublisher(Protocol):
     def publish(self, events: list[DomainEvent]) -> None: ...

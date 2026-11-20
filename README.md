@@ -36,8 +36,10 @@ bootstrap.py     composition root
   tested without a database (`tests/test_domain.py`).
 - Ticketing has no Django model: its tables are created by a `RunSQL` migration, and `DjangoTicketRepository` hydrates
   the aggregate from plain SQL. It uses optimistic locking (`version`) and inserts messages append-only.
-- The aggregate records domain events, which are published after commit. For now they are only logged.
-  An outbox or bus can be plugged in behind `EventPublisher`.
+- The aggregate records domain events, which are dispatched after commit to the handlers of `application/handlers.py`
+  (wired in `bootstrap.py`). Handlers only use ports: e.g. `NotifyAgentOfNewTicket` emails the assigned agent through
+  the `EmailSender` port (printed to the console in development). Dispatch is in-process and best effort; an outbox or
+  bus can be plugged in behind `EventPublisher`.
 
 ## Interpretation of the requirements
 

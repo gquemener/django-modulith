@@ -49,10 +49,11 @@ class InMemoryTicketRepository(TicketRepository):
 
 
 class FakeAgentDirectory:
-    def __init__(self, agents, manager_id=None, staff=()):
+    def __init__(self, agents, manager_id=None, staff=(), emails=None):
         self.agents = [AgentId(a) for a in agents]
         self.manager_id = manager_id
         self.staff = {*self.agents, *staff}
+        self.emails = emails or {}
 
     def assign_agent(self, exclude=()):
         for agent in self.agents:
@@ -62,6 +63,17 @@ class FakeAgentDirectory:
 
     def is_support_staff(self, user_id):
         return user_id in self.staff
+
+    def email_of(self, agent_id):
+        return self.emails.get(agent_id)
+
+
+class RecordingEmailSender:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, to, subject, body):
+        self.sent.append((to, subject, body))
 
 
 class FrozenClock:
