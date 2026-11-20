@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
+from uuid import UUID
 
 from .model import Ticket, TicketId
 
@@ -25,6 +26,10 @@ class TicketRepository(ABC):
     @abstractmethod
     def ids_of_escalated_unopened(self) -> list[TicketId]:
         """Open escalated tickets their agent has not opened yet."""
+
+    @abstractmethod
+    def ids_of_open_assigned_to(self, agent_id: UUID) -> list[TicketId]:
+        """Open tickets currently assigned to the agent."""
 
 
 class ConcurrencyConflict(Exception):

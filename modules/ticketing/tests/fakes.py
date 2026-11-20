@@ -47,6 +47,9 @@ class InMemoryTicketRepository(TicketRepository):
             if t.is_open and t.is_escalated and not t.opened_by_agent_since_escalation
         ]
 
+    def ids_of_open_assigned_to(self, agent_id):
+        return [t.id for t in self.tickets.values() if t.is_open and t.agent_id == agent_id]
+
 
 class FakeAgentDirectory:
     def __init__(self, agents, manager_id=None, staff=(), emails=None):

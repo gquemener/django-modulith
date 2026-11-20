@@ -282,6 +282,14 @@ class Ticket:
         """Hand an escalated ticket the agent did not open in time to someone else."""
         if not self.is_reassignment_due(now):
             raise ReassignmentNotAllowed("The ticket is not due for reassignment.")
+        self._assign(assignment, now, events.ReassignmentReason.ESCALATION_NOT_OPENED)
+
+    def hand_over(self, assignment: Assignment, now: datetime) -> None:
+        """Hand an open ticket over to another agent because its agent was suspended."""
+        self._ensure_open()
+        self._assign(assignment, now, events.ReassignmentReason.AGENT_SUSPENDED)
+
+    def _assign(self, assignment: Assignment, now: datetime, reason: events.ReassignmentReason) -> None:
         if assignment.agent_id == self.agent_id:
             raise ReassignmentNotAllowed("The ticket must be reassigned to a different agent.")
         previous = self.agent_id
@@ -290,6 +298,7 @@ class Ticket:
         self.opened_by_agent_since_escalation = False
         self._record(events.TicketReassigned(
             ticket_id=self.id, occurred_at=now, previous_agent_id=previous, new_agent_id=assignment.agent_id,
+            title=self.title, reason=reason,
         ))
 
     # -------------------------------------------------------------------- closing

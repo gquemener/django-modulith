@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from modules.ticketing.application.service import NoAgentAvailable, NotACustomer, TicketingService
+from modules.ticketing.application.service import HandOverReport, NoAgentAvailable, NotACustomer, TicketingService
 from modules.ticketing.domain import ConcurrencyConflict, Priority, TicketStatus
 from modules.ticketing.domain import events
 
@@ -111,3 +111,29 @@ def test_concurrent_modifications_are_detected(service, repo):
     stale.post_message(CAROL, "Me too", stale.opened_at)
     with pytest.raises(ConcurrencyConflict):
         repo.save(stale)
+
+
+def test_handing_over_the_tickets_of_an_agent(service, repo, publisher):
+    first = service.open_ticket(CAROL, "Bug", "x", Priority.LOW)
+    second = service.open_ticket(CAROL, "Other bug", "y", Priority.HIGH)
+    closed = service.open_ticket(CAROL, "Old bug", "z", Priority.LOW)
+    service.close(closed, CAROL)
+    publisher.events.clear()
+
+    report = service.hand_over_tickets_of(ALICE)
+
+    assert sorted(report.handed_over) == sorted([first, second])
+    assert report.left_with_agent == []
+    assert repo.get(first).agent_id == BOB and repo.get(second).agent_id == BOB
+    assert repo.get(closed).agent_id == ALICE
+    assert [type(e) for e in publisher.events] == [events.TicketReassigned] * 2
+
+
+def test_tickets_stay_with_the_agent_when_nobody_else_is_available(repo, clock, publisher):
+    service = TicketingService(repo, FakeAgentDirectory([ALICE]), clock, publisher, NoTransactions())
+    ticket_id = service.open_ticket(CAROL, "Bug", "x", Priority.LOW)
+
+    report = service.hand_over_tickets_of(ALICE)
+
+    assert report == HandOverReport(handed_over=[], left_with_agent=[ticket_id])
+    assert repo.get(ticket_id).agent_id == ALICE

@@ -9,7 +9,22 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from uuid import UUID
 
+from django.db import transaction
+from django.utils import timezone
+
+from .events import AgentSuspended, publish, subscribe
 from .models import Agent
+
+__all__ = [
+    "AgentInfo",
+    "AgentSuspended",
+    "display_names",
+    "get_agent",
+    "is_support_staff",
+    "pick_available_agent",
+    "subscribe",
+    "suspend_agent",
+]
 
 
 @dataclass(frozen=True)
@@ -42,7 +57,7 @@ def pick_available_agent(exclude: Collection[UUID] = ()) -> AgentInfo | None:
     """Pick an available front-line agent, excluding the given ones."""
     candidates = list(
         Agent.objects.select_related("user")
-        .filter(role=Agent.Role.AGENT, is_available=True)
+        .filter(role=Agent.Role.AGENT, is_available=True, is_suspended=False)
         .exclude(pk__in=list(exclude))
     )
     return _to_info(random.choice(candidates)) if candidates else None
@@ -54,3 +69,11 @@ def display_names(ids: Collection[UUID]) -> dict[UUID, str]:
         agent.pk: str(agent)
         for agent in Agent.objects.select_related("user").filter(pk__in=list(ids))
     }
+
+
+def suspend_agent(agent_id: UUID) -> None:
+    """Suspend an agent; publishes AgentSuspended once committed (only on change)."""
+    with transaction.atomic():
+        suspended = Agent.objects.filter(pk=agent_id, is_suspended=False).update(is_suspended=True)
+        if suspended:
+            publish(AgentSuspended(agent_id=agent_id, occurred_at=timezone.now()))
